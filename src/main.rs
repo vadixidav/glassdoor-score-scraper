@@ -1,24 +1,58 @@
+use linked_hash_map::LinkedHashMap;
+use serde::Deserialize;
 use serde_json::Value;
-use std::collections::HashMap;
+
+#[derive(Debug)]
+enum Query {
+    Employer(EmployerQueryRequest, EmployerQueryResponse),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EmployerQueryRequest {
+    _id: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EmployerQueryResponse {
+    #[serde(rename = "__ref")]
+    _ref: Value,
+}
 
 fn main() {
     if let Some(root_body) = scrape(include_str!(
         "../data/Working-at-Amazon-EI_IE6036.11,17.htm"
     )) {
-        for (query, body) in root_body {
-            println!("{query}: {body}");
-            println!();
+        let queries: Vec<Query> = root_body
+            .into_iter()
+            .filter_map(|(query, body)| query_extractor(&query, body))
+            .collect();
+        for query in queries {
+            println!("{query:?}");
         }
     }
 }
 
-fn scrape(page: &str) -> Option<HashMap<String, Value>> {
+fn scrape(page: &str) -> Option<LinkedHashMap<String, Value>> {
     let root_query_head = "\"ROOT_QUERY\":";
-    page.find(root_query_head).and_then(|root_begin| {
-        let root_body = root_begin + root_query_head.len();
-        find_matching_curly(&page[root_body..])
-            .and_then(|root_body| serde_json::from_str::<HashMap<String, Value>>(root_body).ok())
-    })
+    let root_begin = page.find(root_query_head)?;
+    let root_body = root_begin + root_query_head.len();
+    let root_body = find_matching_curly(&page[root_body..])?;
+    serde_json::from_str::<LinkedHashMap<String, Value>>(root_body).ok()
+}
+
+fn query_extractor(query: &str, body: Value) -> Option<Query> {
+    let first_paren = query.find('(')?;
+    let query_type = &query[..first_paren];
+    let request = &query[first_paren + 1..query.len() - 1];
+    match query_type {
+        "employer" => Some(Query::Employer(
+            serde_json::from_str(request).ok()?,
+            serde_json::from_value(body).ok()?,
+        )),
+        _ => None,
+    }
 }
 
 fn find_matching_curly(s: &str) -> Option<&'_ str> {
