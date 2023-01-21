@@ -1,24 +1,8 @@
+mod query;
+
 use linked_hash_map::LinkedHashMap;
-use serde::Deserialize;
+use query::Query;
 use serde_json::Value;
-
-#[derive(Debug)]
-enum Query {
-    Employer(EmployerQueryRequest, EmployerQueryResponse),
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct EmployerQueryRequest {
-    _id: u64,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct EmployerQueryResponse {
-    #[serde(rename = "__ref")]
-    _ref: Value,
-}
 
 fn main() {
     if let Some(root_body) = scrape(include_str!(
@@ -26,7 +10,7 @@ fn main() {
     )) {
         let queries: Vec<Query> = root_body
             .into_iter()
-            .filter_map(|(query, body)| query_extractor(&query, body))
+            .filter_map(|(query, body)| Query::try_new(&query, body))
             .collect();
         for query in queries {
             println!("{query:?}");
@@ -40,19 +24,6 @@ fn scrape(page: &str) -> Option<LinkedHashMap<String, Value>> {
     let root_body = root_begin + root_query_head.len();
     let root_body = find_matching_curly(&page[root_body..])?;
     serde_json::from_str::<LinkedHashMap<String, Value>>(root_body).ok()
-}
-
-fn query_extractor(query: &str, body: Value) -> Option<Query> {
-    let first_paren = query.find('(')?;
-    let query_type = &query[..first_paren];
-    let request = &query[first_paren + 1..query.len() - 1];
-    match query_type {
-        "employer" => Some(Query::Employer(
-            serde_json::from_str(request).ok()?,
-            serde_json::from_value(body).ok()?,
-        )),
-        _ => None,
-    }
 }
 
 fn find_matching_curly(s: &str) -> Option<&'_ str> {
