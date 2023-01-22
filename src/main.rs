@@ -43,7 +43,7 @@ async fn main() {
     let mut csv_writer =
         AsyncSerializer::from_writer(File::create("glassdoor-scores.csv").await.unwrap());
 
-    for page in 1..3 {
+    for page in 1.. {
         match download_top_companies_page(&client, page).await {
             Ok(page) => {
                 let top_companies = scrape_top_companies(&page);
