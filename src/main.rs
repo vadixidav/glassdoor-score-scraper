@@ -1,41 +1,96 @@
 mod query;
 
+use std::time::Duration;
+
 use linked_hash_map::LinkedHashMap;
 use query::{EmployerReviewsResponse, Query};
+use reqwest::Client;
 use serde_json::Value;
 
-fn main() {
-    // Display working-at data.
-    for (stock, ratings) in [
-        include_str!("../data/Working-at-Amazon-EI_IE6036.11,17.htm"),
-        include_str!("../data/Working-at-Google-EI_IE9079.11,17.htm"),
-    ]
-    .into_iter()
-    .filter_map(|page| scrape_working_at(page))
-    .filter_map(|(stock, root_body)| {
-        Some((
-            stock,
-            root_body
-                .into_iter()
-                .filter_map(|(query, body)| Query::try_new(&query, body))
-                .find_map(|query| match query {
-                    Query::EmployerReviews(_, EmployerReviewsResponse { ratings, .. }) => {
-                        Some(ratings)
-                    }
-                    _ => None,
-                })?,
-        ))
-    }) {
-        println!("{stock}: {ratings:?}");
-    }
+// https://www.glassdoor.com/Explore/browse-companies.htm?overall_rating_low=3&page=6&locId=1&locType=N&locName=United%20States&filterType=RATING_OVERALL
 
-    // Display top companies data.
-    println!(
-        "{:?}",
-        scrape_top_companies(include_str!(
-            "../data/https __www.glassdoor.com_Explore_top-companies-united-states_IL.14,27_IN1.htm"
-        ))
-    );
+#[derive(Debug, thiserror::Error)]
+enum Error {
+    #[error("reqwest: {0}")]
+    Reqwest(#[from] reqwest::Error),
+    #[error("utf-8: {0}")]
+    Utf8(#[from] std::str::Utf8Error),
+}
+
+#[tokio::main]
+async fn main() {
+    let client = Client::new();
+
+    for page in 1..3 {
+        match download_top_companies_page(&client, page).await {
+            Ok(page) => {
+                let top_companies = scrape_top_companies(&page);
+                println!("top companies: {top_companies:?}");
+                for company in top_companies {
+                    let url = "https://www.glassdoor.com".to_owned() + &company;
+                    println!("scraping company {url}");
+                    match download_page(&client, &url).await {
+                        Ok(page) => {
+                            if let Some((stock, ratings)) =
+                                scrape_working_at(&page).and_then(|(stock, root_body)| {
+                                    Some((
+                                        stock,
+                                        root_body
+                                            .into_iter()
+                                            .filter_map(|(query, body)| {
+                                                Query::try_new(&query, body)
+                                            })
+                                            .find_map(|query| match query {
+                                                Query::EmployerReviews(
+                                                    _,
+                                                    EmployerReviewsResponse { ratings, .. },
+                                                ) => Some(ratings),
+                                                _ => None,
+                                            })?,
+                                    ))
+                                })
+                            {
+                                println!("{stock}: {ratings:?}");
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("failed to download company: {e}");
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("failed to download page {page}: {e}");
+            }
+        }
+    }
+}
+
+/// Download one page of glassdoor top companies.
+async fn download_top_companies_page(client: &Client, page: u32) -> Result<String, Error> {
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let response = client
+        .get("https://www.glassdoor.com/Explore/browse-companies.htm")
+        .query(&[
+            ("overall_rating_low", "3"),
+            ("page", &format!("{page}")),
+            ("locId", "1"),
+            ("locType", "N"),
+            ("locName", "United States"),
+            ("filterType", "RATING_OVERALL"),
+        ])
+        .send()
+        .await?;
+    let bytes = response.bytes().await?;
+    Ok(std::str::from_utf8(bytes.as_ref())?.to_owned())
+}
+
+/// Download page.
+async fn download_page(client: &Client, url: &str) -> Result<String, Error> {
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let response = client.get(url).send().await?;
+    let bytes = response.bytes().await?;
+    Ok(std::str::from_utf8(bytes.as_ref())?.to_owned())
 }
 
 /// Extract URLs from top companies.
