@@ -5,12 +5,13 @@ use query::{EmployerReviewsResponse, Query};
 use serde_json::Value;
 
 fn main() {
+    // Display working-at data.
     for (stock, ratings) in [
         include_str!("../data/Working-at-Amazon-EI_IE6036.11,17.htm"),
         include_str!("../data/Working-at-Google-EI_IE9079.11,17.htm"),
     ]
     .into_iter()
-    .filter_map(|page| scrape(page))
+    .filter_map(|page| scrape_working_at(page))
     .filter_map(|(stock, root_body)| {
         Some((
             stock,
@@ -27,9 +28,31 @@ fn main() {
     }) {
         println!("{stock}: {ratings:?}");
     }
+
+    // Display top companies data.
+    println!(
+        "{:?}",
+        scrape_top_companies(include_str!(
+            "../data/https __www.glassdoor.com_Explore_top-companies-united-states_IL.14,27_IN1.htm"
+        ))
+    );
 }
 
-fn scrape(page: &str) -> Option<(String, LinkedHashMap<String, Value>)> {
+/// Extract URLs from top companies.
+fn scrape_top_companies(page: &str) -> Vec<String> {
+    let overview_url_head = "\"overviewUrl\":";
+    page.match_indices(overview_url_head)
+        .filter_map(|(overview_tag, _)| {
+            let overview_url_body = overview_tag + overview_url_head.len();
+            let overview_url_body_end =
+                page[overview_url_body + 1..].find('"')? + overview_url_body + 2;
+            let overview_url_body = &page[overview_url_body..overview_url_body_end];
+            serde_json::from_str::<String>(overview_url_body).ok()
+        })
+        .collect()
+}
+
+fn scrape_working_at(page: &str) -> Option<(String, LinkedHashMap<String, Value>)> {
     let root_query_head = "\"ROOT_QUERY\":";
     let root_begin = page.find(root_query_head)?;
     let root_body = root_begin + root_query_head.len();
