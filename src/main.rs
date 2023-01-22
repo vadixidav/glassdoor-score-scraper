@@ -2,10 +2,13 @@ mod query;
 
 use std::time::Duration;
 
+use csv_async::AsyncSerializer;
 use linked_hash_map::LinkedHashMap;
-use query::{EmployerReviewsResponse, Query};
+use query::{EmployerReviewsResponse, Query, Ratings};
 use reqwest::Client;
+use serde::Serialize;
 use serde_json::Value;
+use tokio::fs::File;
 
 // https://www.glassdoor.com/Explore/browse-companies.htm?overall_rating_low=3&page=6&locId=1&locType=N&locName=United%20States&filterType=RATING_OVERALL
 
@@ -17,21 +20,39 @@ enum Error {
     Utf8(#[from] std::str::Utf8Error),
 }
 
+#[derive(Serialize)]
+struct Row {
+    ticker: String,
+    review_count: u64,
+    overall_rating: f64,
+    ceo_rating: f64,
+    business_outlook_rating: f64,
+    career_opportunities_rating: f64,
+    ceo_ratings_count: u64,
+    compensation_and_benefits_rating: f64,
+    culture_and_values_rating: f64,
+    diversity_and_inclusion_rating: f64,
+    recommend_to_friend_rating: f64,
+    senior_management_rating: f64,
+    work_life_balance_rating: f64,
+}
+
 #[tokio::main]
 async fn main() {
     let client = Client::new();
+    let mut csv_writer =
+        AsyncSerializer::from_writer(File::create("glassdoor-scores.csv").await.unwrap());
 
     for page in 1..3 {
         match download_top_companies_page(&client, page).await {
             Ok(page) => {
                 let top_companies = scrape_top_companies(&page);
-                println!("top companies: {top_companies:?}");
                 for company in top_companies {
                     let url = "https://www.glassdoor.com".to_owned() + &company;
                     println!("scraping company {url}");
                     match download_page(&client, &url).await {
                         Ok(page) => {
-                            if let Some((stock, ratings)) =
+                            if let Some((ticker, ratings)) =
                                 scrape_working_at(&page).and_then(|(stock, root_body)| {
                                     Some((
                                         stock,
@@ -50,7 +71,42 @@ async fn main() {
                                     ))
                                 })
                             {
-                                println!("{stock}: {ratings:?}");
+                                println!("{ticker}: {ratings:?}");
+                                let Ratings {
+                                    review_count,
+                                    overall_rating,
+                                    ceo_rating,
+                                    business_outlook_rating,
+                                    career_opportunities_rating,
+                                    ceo_ratings_count,
+                                    compensation_and_benefits_rating,
+                                    culture_and_values_rating,
+                                    diversity_and_inclusion_rating,
+                                    recommend_to_friend_rating,
+                                    senior_management_rating,
+                                    work_life_balance_rating,
+                                    ..
+                                } = ratings;
+                                if let Err(e) = csv_writer
+                                    .serialize(Row {
+                                        ticker,
+                                        review_count,
+                                        overall_rating,
+                                        ceo_rating,
+                                        business_outlook_rating,
+                                        career_opportunities_rating,
+                                        ceo_ratings_count,
+                                        compensation_and_benefits_rating,
+                                        culture_and_values_rating,
+                                        diversity_and_inclusion_rating,
+                                        recommend_to_friend_rating,
+                                        senior_management_rating,
+                                        work_life_balance_rating,
+                                    })
+                                    .await
+                                {
+                                    eprintln!("failed to serialize: {e}");
+                                }
                             }
                         }
                         Err(e) => {
