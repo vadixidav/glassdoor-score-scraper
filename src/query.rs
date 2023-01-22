@@ -3,7 +3,8 @@ use serde_json::Value;
 
 #[derive(Debug)]
 pub enum Query {
-    Employer(EmployerQueryRequest, EmployerQueryResponse),
+    Employer(EmployerRequest, EmployerResponse),
+    EmployerReviews(EmployerReviewsRequest, EmployerReviewsResponse),
 }
 
 impl Query {
@@ -16,6 +17,10 @@ impl Query {
                 serde_json::from_str(request).ok()?,
                 serde_json::from_value(body).ok()?,
             )),
+            "employerReviews" => Some(Query::EmployerReviews(
+                serde_json::from_str(request).ok()?,
+                serde_json::from_value(body).ok()?,
+            )),
             _ => None,
         }
     }
@@ -23,13 +28,76 @@ impl Query {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EmployerQueryRequest {
+pub struct EmployerRequest {
+    #[serde(flatten)]
+    _employer: Employer,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmployerResponse {
+    #[serde(rename = "__ref")]
+    _ref: Value,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmployerReviewsRequest {
+    _apply_default_criteria: bool,
+    _division: Division,
+    _dynamic_profile_id: u64,
+    _employer: Employer,
+    _is_row_profile_enabled: bool,
+    _language: String,
+    _page: Page,
+    _preferred_tld_id: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmployerReviewsResponse {
+    #[serde(rename = "__typename")]
+    _typename: String,
+    _all_reviews_count: u64,
+    pub ratings: Ratings,
+    _reviews: Value,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Employer {
     _id: u64,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EmployerQueryResponse {
-    #[serde(rename = "__ref")]
-    _ref: Value,
+pub struct Division {
+    _id: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Page {
+    _num: u64,
+    _size: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Ratings {
+    #[serde(rename = "__typename")]
+    _typename: String,
+    _business_outlook_rating: f64,
+    _career_opportunities_rating: f64,
+    _ceo_rating: f64,
+    _ceo_ratings_count: u64,
+    _compensation_and_benefits_rating: f64,
+    _culture_and_values_rating: f64,
+    _diversity_and_inclusion_rating: f64,
+    _overall_rating: f64,
+    _rated_ceo: Value,
+    _recommend_to_friend_rating: f64,
+    _review_count: u64,
+    _senior_management_rating: f64,
+    _work_life_balance_rating: f64,
 }
